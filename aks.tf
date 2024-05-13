@@ -18,23 +18,30 @@ resource "azurerm_kubernetes_cluster" "my-aks" {
   location            = azurerm_resource_group.cloudcareInfra.location
   resource_group_name = azurerm_resource_group.cloudcareInfra.name
   kubernetes_version  = var.kube_version
-  dns_prefix          = "${var.env-tag}-${var.aks_name}"
+  dns_prefix          = "cloudcare"
 
   automatic_channel_upgrade = "stable"
   private_cluster_enabled   = false
-  node_resource_group       = "${var.env-tag}-${var.aks_name}-node-rg"
+  node_resource_group       = "${var.env-tag}-${var.aks_name}-${var.resGroup_name}-node-rg"
 
 
   sku_tier = "Free"
+
+  # http_application_routing_enabled = true
+
 
   oidc_issuer_enabled       = true
   workload_identity_enabled = true
 
 
+  key_vault_secrets_provider {
+    secret_rotation_enabled  = true
+    secret_rotation_interval = "5m"
+  }
 
   network_profile {
     network_plugin = "azure"
-    dns_service_ip = "10.10.192.10"
+    dns_service_ip = "10.0.192.10"
     service_cidr   = "10.0.192.0/18"
 
   }

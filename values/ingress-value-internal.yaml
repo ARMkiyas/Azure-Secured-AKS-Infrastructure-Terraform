@@ -1,0 +1,20 @@
+---
+controller:
+  ingressClassResource:
+    name: internal-nginx
+  service:
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /healthz
+      service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+      service.beta.kubernetes.io/azure-pls-create: "true"
+      service.beta.kubernetes.io/azure-pls-name: "lbprivateLink"
+      service.beta.kubernetes.io/azure-pls-ip-configuration-subnet: "aks-subnet"
+      # service.beta.kubernetes.io/azure-pls-ip-configuration-ip-address-count: "1"
+      # service.beta.kubernetes.io/azure-pls-ip-configuration-ip-address: IP_IN_SUBNET
+      service.beta.kubernetes.io/azure-pls-proxy-protocol: "false"
+      service.beta.kubernetes.io/azure-pls-visibility: '*'
+
+  # #Required for ACME
+  # watchIngressWithoutClass: true
+  # extraArgs:
+  #   ingress-class: internal-nginx

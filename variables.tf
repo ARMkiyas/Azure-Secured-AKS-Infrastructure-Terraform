@@ -4,16 +4,16 @@ variable "resGroup_name" {
   description = "resource group name"
 }
 
-variable "env-tag" {
-  default     = "dev"
-  description = "environment"
-
-}
-
 variable "locaion" {
   type        = string
   default     = "eastus2"
   description = "description"
+}
+
+variable "env-tag" {
+  default     = "dev"
+  description = "environment"
+
 }
 
 variable "subnet_sec_group" {
@@ -89,4 +89,19 @@ variable "aks_name" {
 variable "kube_version" {
   default     = "1.28.5"
   description = "kubernetes version"
+}
+
+
+variable "frontdoor_name" {
+
+  default     = "frontdoor"
+  description = "azure frontdoor name"
+
+}
+
+
+variable "frontdoor_sku" {
+  default     = "Standard_AzureFrontDoor"
+  description = "azure frontdoor sku (default: Standard_AzureFrontDoor)"
+
 }
