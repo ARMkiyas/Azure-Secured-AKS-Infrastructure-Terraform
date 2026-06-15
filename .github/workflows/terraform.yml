@@ -80,6 +80,7 @@ jobs:
         with:
           scan-type: config
           scan-ref: .
+          version: v0.71.0 # Trivy binary version (action stays SHA-pinned)
           format: table
           exit-code: "1"
           severity: HIGH,CRITICAL

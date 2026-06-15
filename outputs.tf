@@ -28,6 +28,11 @@ output "frontdoor_endpoint_hostname" {
   value       = azurerm_cdn_frontdoor_endpoint.main.host_name
 }
 
+output "log_analytics_workspace_id" {
+  description = "Resource ID of the Log Analytics workspace (null when monitoring is disabled)."
+  value       = var.enable_monitoring ? azurerm_log_analytics_workspace.aks[0].id : null
+}
+
 output "kube_config_raw" {
   description = "Raw kubeconfig for the cluster. Sensitive: contains admin credentials."
   value       = azurerm_kubernetes_cluster.aks.kube_config_raw

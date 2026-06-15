@@ -41,14 +41,49 @@ resource "azurerm_kubernetes_cluster" "aks" {
   oidc_issuer_enabled       = true
   workload_identity_enabled = true
 
+  # Kubernetes RBAC. Set explicitly (in addition to the Azure RBAC block below)
+  # so static scanners can see it; dynamic blocks are invisible to them.
+  role_based_access_control_enabled = true
+
   # CSI driver to mount Key Vault secrets into pods, with rotation.
   key_vault_secrets_provider {
     secret_rotation_enabled  = true
     secret_rotation_interval = "5m"
   }
 
+  # Restrict the public API server to known CIDRs when provided. Leave the
+  # variable empty only if you accept a publicly reachable API server (gated by
+  # Entra ID + RBAC) or you enable private_cluster_enabled.
+  dynamic "api_server_access_profile" {
+    for_each = length(var.api_server_authorized_ip_ranges) > 0 ? [1] : []
+    content {
+      authorized_ip_ranges = var.api_server_authorized_ip_ranges
+    }
+  }
+
+  # Entra ID integration with Kubernetes-native Azure RBAC. Local admin accounts
+  # stay enabled so the helm provider can use kube_config on first apply; for a
+  # hardened cluster set local_account_disabled and switch to kube_admin_config.
+  dynamic "azure_active_directory_role_based_access_control" {
+    for_each = var.enable_azure_rbac ? [1] : []
+    content {
+      azure_rbac_enabled     = true
+      admin_group_object_ids = var.admin_group_object_ids
+    }
+  }
+
+  # Container Insights via the OMS agent, using managed identity auth.
+  dynamic "oms_agent" {
+    for_each = var.enable_monitoring ? [1] : []
+    content {
+      log_analytics_workspace_id      = azurerm_log_analytics_workspace.aks[0].id
+      msi_auth_for_monitoring_enabled = true
+    }
+  }
+
   network_profile {
     network_plugin = var.aks_network_profile.network_plugin
+    network_policy = var.aks_network_profile.network_policy
     service_cidr   = var.aks_network_profile.service_cidr
     dns_service_ip = var.aks_network_profile.dns_service_ip
   }

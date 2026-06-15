@@ -1,0 +1,12 @@
+# Trivy accepted-risk exceptions for `trivy config`.
+# Every entry must have a justification, an owner, and an expiry (exp:YYYY-MM-DD)
+# so suppressions are reviewed instead of living forever.
+
+# AZU-0041: API server is publicly reachable with no IP allowlist by default.
+# Justification: this baseline ships a public-API cluster suitable for dev/CI,
+# where access is gated by Entra ID + Azure RBAC. The Helm provider and
+# `az aks get-credentials` also need to reach the API from outside the VNet.
+# To remove this exception: set var.api_server_authorized_ip_ranges to your
+# egress CIDRs (or enable a private cluster), then delete this line.
+# Owner: platform-team
+AZU-0041 exp:2026-12-31

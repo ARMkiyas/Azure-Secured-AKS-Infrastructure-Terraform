@@ -31,3 +31,7 @@ system_node_pool = {
 # Front Door
 # Private Link to the internal ingress origin requires the Premium SKU.
 frontdoor_sku = "Standard_AzureFrontDoor"
+
+# Restrict the public API server to your egress CIDRs (recommended).
+# Leave empty for an unrestricted public API server (gated by Entra ID + RBAC).
+# api_server_authorized_ip_ranges = ["203.0.113.10/32"]

@@ -152,6 +152,18 @@ variable "aks_sku_tier" {
   }
 }
 
+variable "enable_azure_rbac" {
+  description = "Enable Entra ID (Azure AD) integration with Azure RBAC for Kubernetes authorization."
+  type        = bool
+  default     = true
+}
+
+variable "admin_group_object_ids" {
+  description = "Entra ID group object IDs granted cluster-admin when Azure RBAC is enabled."
+  type        = list(string)
+  default     = []
+}
+
 variable "system_node_pool" {
   description = "Configuration for the default (system) node pool."
   type = object({
@@ -177,13 +189,47 @@ variable "aks_network_profile" {
   description = "AKS network profile settings. service_cidr/dns_service_ip must not overlap the VNet address space."
   type = object({
     network_plugin = string
+    network_policy = optional(string, "azure")
     service_cidr   = string
     dns_service_ip = string
   })
   default = {
     network_plugin = "azure"
+    network_policy = "azure"
     service_cidr   = "10.0.192.0/18"
     dns_service_ip = "10.0.192.10"
+  }
+}
+
+variable "api_server_authorized_ip_ranges" {
+  description = "CIDR ranges allowed to reach the public Kubernetes API server. Empty list means no IP restriction (see .trivyignore / consider private_cluster_enabled)."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = !contains(var.api_server_authorized_ip_ranges, "0.0.0.0/0")
+    error_message = "0.0.0.0/0 defeats the purpose of an API server allowlist; omit it or use a tighter range."
+  }
+}
+
+# -----------------------------------------------------------------------------
+# Observability
+# -----------------------------------------------------------------------------
+
+variable "enable_monitoring" {
+  description = "Provision a Log Analytics workspace and enable Container Insights (OMS agent) on the cluster."
+  type        = bool
+  default     = true
+}
+
+variable "log_analytics_retention_days" {
+  description = "Retention period for the Log Analytics workspace, in days."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.log_analytics_retention_days >= 30 && var.log_analytics_retention_days <= 730
+    error_message = "log_analytics_retention_days must be between 30 and 730."
   }
 }
 
