@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Keep SHA-pinned GitHub Actions current. Dependabot opens PRs that bump the
+  # SHA and update the trailing "# vX.Y.Z" comment, so pinning never goes stale.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Keep the Terraform provider lock file (.terraform.lock.hcl) current.
+  - package-ecosystem: terraform
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

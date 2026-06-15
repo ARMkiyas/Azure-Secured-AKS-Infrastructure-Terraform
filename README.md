@@ -1,5 +1,6 @@
 # Azure Secured AKS Infrastructure (Terraform)
 
+
 Terraform configuration that provisions a network-isolated **Azure Kubernetes Service (AKS)** platform fronted by **Azure Front Door** over **Private Link**. Public traffic terminates at Front Door and reaches the cluster through an internal ingress-nginx controller, so the Kubernetes load balancer is never exposed directly to the internet.
 
 ```
@@ -65,11 +66,18 @@ Terraform configuration that provisions a network-isolated **Azure Kubernetes Se
 ├── main.tf                     # Resource group
 ├── network.tf                  # VNet, subnets, NSG + associations
 ├── aks.tf                      # AKS cluster + identity + role assignment
+├── monitoring.tf               # Log Analytics workspace (Container Insights)
 ├── ingress.tf                  # ingress-nginx Helm release
 ├── frontdoor.tf                # Azure Front Door profile/endpoint/origin/route
 ├── outputs.tf                  # Useful outputs
 ├── moved.tf                    # State migration from the old resource names
 ├── terraform.tfvars.example    # Copy to terraform.tfvars and edit
+├── .tflint.hcl                 # TFLint rules (terraform + azurerm presets)
+├── .trivyignore                # Documented, time-boxed Trivy exceptions
+├── .pre-commit-config.yaml     # fmt / validate / tflint / trivy / docs hooks
+├── .github/
+│   ├── workflows/              # CI: validate → lint → security scan → plan
+│   └── dependabot.yml          # Weekly action-SHA + provider updates
 └── values/
     ├── ingress-value-internal.yaml   # Internal ingress (Private Link enabled)
     └── ingress-value-external.yaml   # Public ingress (optional)
@@ -142,8 +150,13 @@ Set values in `terraform.tfvars` (preferred) or pass `-var`/`-var-file` on the c
 | `aks_name` | `string` | `"aks"` | Cluster name (prefixed) |
 | `kubernetes_version` | `string` | `"1.30"` | Control-plane version |
 | `aks_sku_tier` | `string` | `"Free"` | `Free`, `Standard` or `Premium` |
+| `enable_azure_rbac` | `bool` | `true` | Enable Entra ID + Azure RBAC for Kubernetes auth |
+| `admin_group_object_ids` | `list(string)` | `[]` | Entra ID groups granted cluster-admin |
 | `system_node_pool` | `object` | DS2_v2, 1/1/10 | Default node pool sizing |
-| `aks_network_profile` | `object` | azure / 10.0.192.0/18 / .10 | CNI + service CIDR |
+| `aks_network_profile` | `object` | azure / azure / 10.0.192.0/18 / .10 | CNI plugin, network policy + service CIDR |
+| `api_server_authorized_ip_ranges` | `list(string)` | `[]` | CIDRs allowed to reach the public API server (empty = unrestricted) |
+| `enable_monitoring` | `bool` | `true` | Provision Log Analytics + Container Insights |
+| `log_analytics_retention_days` | `number` | `30` | Workspace retention (30-730) |
 | `frontdoor_name` | `string` | `"frontdoor"` | Front Door profile name (prefixed) |
 | `frontdoor_sku` | `string` | `"Standard_AzureFrontDoor"` | Front Door SKU |
 | `ingress_nginx_chart_version` | `string` | `"4.11.3"` | Pinned ingress-nginx chart version |
@@ -160,6 +173,7 @@ Most resources are named `${project_name}-${environment}-...` (e.g. `cloudcare-d
 | `aks_oidc_issuer_url` | OIDC issuer URL for workload identity federation |
 | `vnet_id` | Virtual network resource ID |
 | `frontdoor_endpoint_hostname` | Default `*.azurefd.net` hostname |
+| `log_analytics_workspace_id` | Log Analytics workspace ID (null if monitoring disabled) |
 | `kube_config_raw` | Raw kubeconfig (**sensitive**) |
 
 ## Connecting to the cluster
@@ -178,6 +192,10 @@ kubectl -n ingress get svc
 - **No direct public exposure.** The ingress is internal; only Front Door reaches it, over Private Link.
 - **HTTP is redirected to HTTPS** at the Front Door route, with TLS terminated on the managed domain.
 - **Workload identity + OIDC** are enabled so pods can use federated credentials instead of stored secrets.
+- **Entra ID + Azure RBAC** for Kubernetes authorization is enabled by default (`enable_azure_rbac`); grant access with `admin_group_object_ids`. Kubernetes RBAC is also set explicitly (`role_based_access_control_enabled = true`).
+- **Network policy** (`azure` by default) is enabled so traffic between pods can be restricted with NetworkPolicy objects. Note: the network policy cannot be changed in place on an existing cluster — it requires replacement.
+- **API server allowlist**: set `api_server_authorized_ip_ranges` to your egress CIDRs to restrict the public API server. Left empty by default (public, gated by Entra ID + RBAC); see the accepted-risk note below.
+- **Container Insights** (Log Analytics + OMS agent with managed-identity auth) is enabled by default for cluster observability.
 - **Key Vault CSI driver** with secret rotation is enabled for mounting secrets.
 - **NSGs are now attached** to every subnet (previously the NSG was created but never associated).
 - **Least-privilege provider registration**: only the resource providers this stack needs are auto-registered.
@@ -185,10 +203,41 @@ kubectl -n ingress get svc
 Recommended hardening before production:
 
 - Set `aks_sku_tier = "Standard"` (or `Premium`) for an SLA-backed control plane.
-- Consider `private_cluster_enabled = true` to keep the API server off the public internet.
+- Consider `private_cluster_enabled = true` to keep the API server off the public internet, and `local_account_disabled = true` to force Entra ID auth (then drive the helm provider from `kube_admin_config`).
+- Run workloads on a dedicated user node pool and reserve the system pool with `only_critical_addons_enabled` (add an `azurerm_kubernetes_cluster_node_pool`).
 - Add Azure Policy / Defender for Containers and a Front Door **WAF** policy (managed WAF rules require the `Premium_AzureFrontDoor` SKU).
 - Restrict the NSG with explicit rules rather than relying on defaults.
 - Move state to a remote backend (see below).
+
+## Quality gates
+
+Static checks run both locally (via pre-commit) and in CI before any plan:
+
+```bash
+# One-time local setup
+pre-commit install
+pre-commit run --all-files     # fmt, validate, tflint, trivy, terraform-docs
+
+# Or run tools directly
+terraform fmt -check -recursive
+terraform validate
+tflint --init && tflint --recursive
+trivy config .
+```
+
+`.github/workflows/terraform.yml` runs **validate → lint → security scan → plan** on every PR. The plan job authenticates to Azure with **OIDC / workload identity** (no stored secrets) and uploads the plan as an artifact so a downstream apply consumes the *reviewed* plan rather than re-planning. Configure these repository secrets for the plan job: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`.
+
+### Supply-chain hardening of the pipeline
+
+- **All third-party actions are pinned to a commit SHA** (with a `# vX.Y.Z` comment), not a mutable tag — tags can be force-pushed to malicious code, as happened to `aquasecurity/trivy-action` in March 2026.
+- **Tool versions are pinned** (Terraform, TFLint binary, TFLint azurerm ruleset) so runs are reproducible and not pulling `latest`.
+- **`.github/dependabot.yml`** opens weekly PRs to bump the action SHAs and the Terraform lock file, so pinning stays current instead of going stale.
+- **Least-privilege tokens**: the default workflow permission is `contents: read`; only the plan job is granted `id-token: write` (for OIDC). `persist-credentials: false` stops the checkout from leaving the `GITHUB_TOKEN` in `.git/config`.
+- **Required action**: configure the `dev` GitHub Environment with **required reviewers**. `terraform plan` can execute code (external data sources, provider/module fetches), so on a `pull_request` the OIDC token must only be issued after a human approves the run — otherwise a malicious PR could run with your Azure credentials.
+
+### Handling Trivy findings
+
+`trivy config` runs in CI and fails the build on HIGH/CRITICAL misconfigurations. Real issues are fixed in the Terraform (RBAC, network policy, etc.). Where a control is environment-specific and cannot be hardcoded, it is recorded as an **accepted risk in `.trivyignore`** with a justification, owner, and expiry date (`exp:YYYY-MM-DD`) rather than disabling the scanner. The current exception is `AZU-0041` (public API server) — remove it once you set `api_server_authorized_ip_ranges` or enable a private cluster.
 
 > **Private Link origin requires Premium Front Door.** Connecting Front Door to a private origin over Private Link is a `Premium_AzureFrontDoor` capability. With the `Standard` SKU, either upgrade the SKU or switch to a public origin.
 
