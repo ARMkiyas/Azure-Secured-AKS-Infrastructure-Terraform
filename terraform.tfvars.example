@@ -1,0 +1,33 @@
+# Copy this file to terraform.tfvars and adjust the values for your deployment.
+# terraform.tfvars is gitignored so your real values are never committed.
+
+# Subscription to deploy into. Alternatively export ARM_SUBSCRIPTION_ID and omit this.
+# subscription_id = "00000000-0000-0000-0000-000000000000"
+
+project_name        = "cloudcare"
+environment         = "dev"
+location            = "eastus2"
+resource_group_name = "cloudcare-infra"
+
+tags = {
+  owner       = "platform-team"
+  cost_center = "1234"
+}
+
+# Networking
+vnet_address_space = ["10.0.0.0/16"]
+
+# AKS
+kubernetes_version = "1.30"
+aks_sku_tier       = "Free" # use "Standard" or "Premium" for an SLA-backed control plane
+
+system_node_pool = {
+  vm_size    = "Standard_DS2_v2"
+  node_count = 1
+  min_count  = 1
+  max_count  = 10
+}
+
+# Front Door
+# Private Link to the internal ingress origin requires the Premium SKU.
+frontdoor_sku = "Standard_AzureFrontDoor"
