@@ -47,6 +47,22 @@ spot_node_pool = {
 # Serverless burst to Azure Container Instances (off by default).
 # enable_virtual_nodes = true
 
+# GitOps / Argo CD
+enable_argocd     = true
+argocd_ha_enabled = false # set true for production
+# Point Argo CD at your app-of-apps repo to enable GitOps delivery.
+# Leave gitops_repo_url empty to install Argo CD without wiring a repo yet.
+# gitops_repo_url        = "https://github.com/ARMkiyas/my-gitops-repo.git"
+# gitops_target_revision = "main"
+# gitops_path            = "apps"
+
+# Argo CD Entra ID SSO (optional). See README "Entra ID SSO".
+# argocd_sso_enabled       = true
+# argocd_server_url        = "https://argocd.example.com"
+# argocd_oidc_client_id    = "00000000-0000-0000-0000-000000000000"
+# argocd_rbac_admin_groups = ["<entra-group-object-id>"]
+# client secret: export TF_VAR_argocd_oidc_client_secret=... (do not commit)
+
 # Front Door
 # Private Link to the internal ingress origin requires the Premium SKU.
 frontdoor_sku = "Standard_AzureFrontDoor"

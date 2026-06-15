@@ -1,0 +1,26 @@
+# Sample child Application managed by the root app-of-apps.
+# podinfo is a small demo web app, handy for confirming GitOps sync end to end.
+# Replace or delete once you add your real workloads.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: podinfo
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://stefanprodan.github.io/podinfo
+    chart: podinfo
+    # Pin the chart version; check https://github.com/stefanprodan/podinfo/releases
+    targetRevision: 6.7.1
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: podinfo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

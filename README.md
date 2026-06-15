@@ -69,6 +69,7 @@ Terraform configuration that provisions a network-isolated **Azure Kubernetes Se
 ├── node-pools.tf               # User (on-demand) + Spot node pools
 ├── monitoring.tf               # Log Analytics workspace (Container Insights)
 ├── ingress.tf                  # ingress-nginx Helm release
+├── argocd.tf                   # Argo CD (GitOps) bootstrap + root app-of-apps
 ├── frontdoor.tf                # Azure Front Door profile/endpoint/origin/route
 ├── outputs.tf                  # Useful outputs
 ├── moved.tf                    # State migration from the old resource names
@@ -82,6 +83,10 @@ Terraform configuration that provisions a network-isolated **Azure Kubernetes Se
 └── values/
     ├── ingress-value-internal.yaml   # Internal ingress (Private Link enabled)
     └── ingress-value-external.yaml   # Public ingress (optional)
+
+gitops-example/                       # starter app-of-apps to copy into your GitOps repo
+└── apps/
+    └── podinfo.yaml                  # sample child Argo CD Application
 ```
 
 ## Requirements
@@ -166,6 +171,18 @@ Set values in `terraform.tfvars` (preferred) or pass `-var`/`-var-file` on the c
 | `frontdoor_name` | `string` | `"frontdoor"` | Front Door profile name (prefixed) |
 | `frontdoor_sku` | `string` | `"Standard_AzureFrontDoor"` | Front Door SKU |
 | `ingress_nginx_chart_version` | `string` | `"4.11.3"` | Pinned ingress-nginx chart version |
+| `enable_argocd` | `bool` | `true` | Install Argo CD (GitOps controller) |
+| `argocd_namespace` | `string` | `"argocd"` | Argo CD namespace |
+| `argocd_chart_version` | `string` | `"9.5.21"` | Pinned argo-cd chart version |
+| `argocd_ha_enabled` | `bool` | `false` | Run Argo CD in HA mode |
+| `gitops_repo_url` | `string` | `""` | Git repo for the root app-of-apps (empty = install Argo CD only) |
+| `gitops_target_revision` | `string` | `"main"` | Git revision the root app tracks |
+| `gitops_path` | `string` | `"apps"` | Path in the repo for the root app-of-apps |
+| `argocd_sso_enabled` | `bool` | `false` | Configure Entra ID OIDC SSO for Argo CD |
+| `argocd_server_url` | `string` | `""` | External Argo CD URL (matches Entra redirect URI) |
+| `argocd_oidc_client_id` | `string` | `""` | Entra app (client) ID for Argo CD SSO |
+| `argocd_oidc_client_secret` | `string` (sensitive) | `""` | Entra app secret (prefer out-of-band injection) |
+| `argocd_rbac_admin_groups` | `list(string)` | `[]` | Entra group object IDs mapped to Argo CD admin |
 
 Most resources are named `${project_name}-${environment}-...` (e.g. `cloudcare-dev-aks`).
 
@@ -218,6 +235,83 @@ az aks get-credentials \
 kubectl get nodes
 kubectl -n ingress get svc
 ```
+
+## GitOps with Argo CD
+
+Argo CD is installed by Terraform as a **bootstrap** step, then becomes the source of truth for everything running in the cluster. The boundary is deliberate:
+
+- **Terraform** provisions the infrastructure and the GitOps engine (Argo CD itself).
+- **Argo CD** continuously reconciles in-cluster applications from your Git repo.
+- **ingress-nginx stays in Terraform** because the Front Door origin reads the Private Link Service the ingress creates, within the same apply graph. Keeping it in Terraform avoids a cross-tool ordering race.
+
+### Bootstrap flow
+
+1. `terraform apply` installs Argo CD into the `argocd` namespace (internal/ClusterIP, pinned to the on-demand `user` pool, optionally HA).
+2. If `gitops_repo_url` is set, Terraform also creates one **root "app-of-apps"** `Application` pointing at `<repo>/<gitops_path>@<gitops_target_revision>` with automated sync (prune + self-heal).
+3. Argo CD reads that path and deploys every child Application you declare there. After this, you ship changes by committing to Git, not by running Terraform.
+
+Set `gitops_repo_url = ""` (default) to install Argo CD without wiring a repo yet.
+
+### Suggested GitOps repo structure
+
+```
+your-gitops-repo/
+└── apps/                      # gitops_path: the root app-of-apps watches here
+    ├── cert-manager.yaml      # child Argo CD Applications (one per workload/addon)
+    ├── monitoring.yaml
+    └── my-app.yaml
+```
+
+Each child is a normal Argo CD `Application` manifest pointing at its own chart/manifests. For multi-environment or multi-cluster fan-out, prefer **ApplicationSets** over a static app-of-apps.
+
+### Accessing Argo CD
+
+```bash
+# Port-forward the internal server
+kubectl -n argocd port-forward svc/argocd-server 8080:443
+
+# Initial admin password (rotate or disable after SSO is configured)
+terraform output -raw argocd_admin_password_command | bash
+```
+
+### Entra ID SSO (recommended)
+
+Set `argocd_sso_enabled = true` to configure Entra ID (Azure AD) OIDC login. First create an app registration for Argo CD:
+
+```bash
+ARGO_URL="https://argocd.example.com"   # must match argocd_server_url
+
+APP_ID="$(az ad app create --display-name "argocd-sso" \
+  --web-redirect-uris "${ARGO_URL}/auth/callback" "http://localhost:8085/auth/callback" \
+  --query appId -o tsv)"
+
+# Client secret (pass via TF_VAR or inject out-of-band; don't commit it)
+az ad app credential reset --id "$APP_ID" --append --query password -o tsv
+
+# Emit group object IDs in the token so RBAC can match them
+az ad app update --id "$APP_ID" --set groupMembershipClaims=SecurityGroup
+```
+
+Then set the variables (the issuer/tenant is derived automatically):
+
+```hcl
+argocd_sso_enabled       = true
+argocd_server_url        = "https://argocd.example.com"
+argocd_oidc_client_id    = "<APP_ID>"
+argocd_rbac_admin_groups = ["<entra-group-object-id>"]   # mapped to role:admin
+# argocd_oidc_client_secret via TF_VAR_argocd_oidc_client_secret (sensitive)
+```
+
+Two notes:
+- **Secret handling**: leaving `argocd_oidc_client_secret` empty keeps it out of Terraform state. Inject it into the `argocd-secret` (`oidc.azure.clientSecret`) via Key Vault / External Secrets instead. If you do set it, it is stored in state, so use a remote encrypted backend.
+- SSO needs Argo CD reachable at `argocd_server_url`, so expose the server via an ingress (the server stays ClusterIP by default). The CLI also works via the `localhost:8085` redirect.
+
+### Argo CD security notes
+
+- The server is **ClusterIP** (not exposed publicly). Expose it deliberately, behind ingress + SSO, only if you need the UI off-cluster.
+- For production, integrate **Entra ID SSO** (OIDC/Dex) and then **disable the local `admin` account** so access is centrally governed.
+- The initial admin password lives in the `argocd-initial-admin-secret` secret. It is not stored in Terraform state. Rotate it after first login.
+- For **private** GitOps repos, give Argo CD repo credentials via a Kubernetes secret sourced from Key Vault (CSI) or a GitHub App, rather than committing tokens.
 
 ## Security notes
 

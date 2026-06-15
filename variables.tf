@@ -327,3 +327,96 @@ variable "ingress_nginx_chart_version" {
   type        = string
   default     = "4.11.3"
 }
+
+# -----------------------------------------------------------------------------
+# GitOps / Argo CD
+# -----------------------------------------------------------------------------
+
+variable "enable_argocd" {
+  description = "Install Argo CD (the GitOps controller) on the cluster via Terraform bootstrap."
+  type        = bool
+  default     = true
+}
+
+variable "argocd_namespace" {
+  description = "Namespace for the Argo CD installation."
+  type        = string
+  default     = "argocd"
+}
+
+variable "argocd_chart_version" {
+  description = "Pinned argo-cd Helm chart version. See https://github.com/argoproj/argo-helm/releases."
+  type        = string
+  default     = "9.5.21"
+}
+
+variable "argocd_apps_chart_version" {
+  description = "Pinned argocd-apps Helm chart version used to bootstrap the root app-of-apps Application."
+  type        = string
+  default     = "2.0.5"
+}
+
+variable "argocd_ha_enabled" {
+  description = "Run Argo CD in high-availability mode (extra replicas + redis-ha). Recommended for production."
+  type        = bool
+  default     = false
+}
+
+variable "gitops_repo_url" {
+  description = "Git repository URL holding your Argo CD app-of-apps manifests. Empty string disables the root-app bootstrap (Argo CD is still installed)."
+  type        = string
+  default     = ""
+}
+
+variable "gitops_target_revision" {
+  description = "Git revision (branch, tag, or commit) the root Application tracks."
+  type        = string
+  default     = "main"
+}
+
+variable "gitops_path" {
+  description = "Path within the GitOps repo that holds the root app-of-apps manifests."
+  type        = string
+  default     = "apps"
+}
+
+variable "argocd_sso_enabled" {
+  description = "Configure Entra ID (Azure AD) OIDC SSO for the Argo CD UI/CLI."
+  type        = bool
+  default     = false
+}
+
+variable "argocd_server_url" {
+  description = "External URL Argo CD is reached at (must match the Entra app redirect URI), e.g. https://argocd.example.com. Required when SSO is enabled."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.argocd_sso_enabled || length(var.argocd_server_url) > 0
+    error_message = "argocd_server_url is required when argocd_sso_enabled is true."
+  }
+}
+
+variable "argocd_oidc_client_id" {
+  description = "Application (client) ID of the Entra ID app registration for Argo CD. Required when SSO is enabled."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.argocd_sso_enabled || length(var.argocd_oidc_client_id) > 0
+    error_message = "argocd_oidc_client_id is required when argocd_sso_enabled is true."
+  }
+}
+
+variable "argocd_oidc_client_secret" {
+  description = "Client secret for the Argo CD Entra ID app. Leave empty to inject it out-of-band (Key Vault / External Secrets) into the argocd-secret instead of storing it in Terraform state."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "argocd_rbac_admin_groups" {
+  description = "Entra ID group object IDs mapped to the Argo CD admin role via RBAC."
+  type        = list(string)
+  default     = []
+}

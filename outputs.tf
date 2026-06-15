@@ -33,6 +33,16 @@ output "log_analytics_workspace_id" {
   value       = var.enable_monitoring ? azurerm_log_analytics_workspace.aks[0].id : null
 }
 
+output "argocd_namespace" {
+  description = "Namespace where Argo CD is installed (null when disabled)."
+  value       = var.enable_argocd ? var.argocd_namespace : null
+}
+
+output "argocd_admin_password_command" {
+  description = "Command to read the initial Argo CD admin password from the cluster (rotate/disable after SSO setup)."
+  value       = var.enable_argocd ? "kubectl -n ${var.argocd_namespace} get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d" : null
+}
+
 output "kube_config_raw" {
   description = "Raw kubeconfig for the cluster. Sensitive: contains admin credentials."
   value       = azurerm_kubernetes_cluster.aks.kube_config_raw
