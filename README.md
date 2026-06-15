@@ -1,4 +1,4 @@
-# Azure Secured AKS Infrastructure (Terraform)- test ci
+# Azure Secured AKS Infrastructure (Terraform)
 
 
 Terraform configuration that provisions a network-isolated **Azure Kubernetes Service (AKS)** platform fronted by **Azure Front Door** over **Private Link**. Public traffic terminates at Front Door and reaches the cluster through an internal ingress-nginx controller, so the Kubernetes load balancer is never exposed directly to the internet.
