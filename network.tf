@@ -24,6 +24,10 @@ resource "azurerm_subnet" "aks" {
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = [var.aks_subnet.address_prefix]
+
+  # Azure is retiring implicit default outbound access (Sept 2025). AKS nodes
+  # egress via the cluster's standard load balancer, so this is not needed.
+  default_outbound_access_enabled = false
 }
 
 resource "azurerm_subnet" "storage" {
@@ -31,6 +35,8 @@ resource "azurerm_subnet" "storage" {
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = [var.storage_subnet.address_prefix]
+
+  default_outbound_access_enabled = false
 }
 
 resource "azurerm_subnet" "other_service" {
@@ -38,6 +44,27 @@ resource "azurerm_subnet" "other_service" {
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = [var.other_service_subnet.address_prefix]
+
+  default_outbound_access_enabled = false
+}
+
+# Subnet delegated to Azure Container Instances, used by Virtual Nodes
+# (serverless). Only created when enable_virtual_nodes = true.
+resource "azurerm_subnet" "virtual_node" {
+  count = var.enable_virtual_nodes ? 1 : 0
+
+  name                 = var.virtual_node_subnet.name
+  resource_group_name  = azurerm_resource_group.main.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = [var.virtual_node_subnet.address_prefix]
+
+  delegation {
+    name = "aci-delegation"
+    service_delegation {
+      name    = "Microsoft.ContainerInstance/containerGroups"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
+    }
+  }
 }
 
 # Associate the NSG with each subnet. In the original configuration the NSG was

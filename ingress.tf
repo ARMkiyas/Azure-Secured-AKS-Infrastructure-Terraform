@@ -18,6 +18,10 @@ resource "helm_release" "internal_ingress" {
 
   values = [file("${path.module}/values/ingress-value-internal.yaml")]
 
-  # The cluster (and its credentials used by the helm provider) must exist first.
-  depends_on = [azurerm_kubernetes_cluster.aks]
+  # The cluster credentials (helm provider) and an untainted node pool must
+  # exist first - the system pool is reserved, so ingress lands on the user pool.
+  depends_on = [
+    azurerm_kubernetes_cluster.aks,
+    azurerm_kubernetes_cluster_node_pool.user,
+  ]
 }

@@ -28,6 +28,25 @@ system_node_pool = {
   max_count  = 10
 }
 
+# On-demand pool for general workloads (ingress, apps).
+user_node_pool = {
+  vm_size   = "Standard_DS2_v2"
+  min_count = 1
+  max_count = 5
+}
+
+# Cost optimization: Spot pool for interruptible workloads (scales to zero).
+enable_spot_node_pool = true
+spot_node_pool = {
+  vm_size   = "Standard_DS2_v2"
+  min_count = 0
+  max_count = 3
+  max_price = -1 # pay up to the on-demand price
+}
+
+# Serverless burst to Azure Container Instances (off by default).
+# enable_virtual_nodes = true
+
 # Front Door
 # Private Link to the internal ingress origin requires the Premium SKU.
 frontdoor_sku = "Standard_AzureFrontDoor"
