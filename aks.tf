@@ -81,6 +81,15 @@ resource "azurerm_kubernetes_cluster" "aks" {
     }
   }
 
+  # Serverless burst capacity: schedule pods onto Azure Container Instances via
+  # the Virtual Nodes connector (requires the ACI-delegated subnet in network.tf).
+  dynamic "aci_connector_linux" {
+    for_each = var.enable_virtual_nodes ? [1] : []
+    content {
+      subnet_name = azurerm_subnet.virtual_node[0].name
+    }
+  }
+
   network_profile {
     network_plugin = var.aks_network_profile.network_plugin
     network_policy = var.aks_network_profile.network_policy
@@ -89,7 +98,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 
   default_node_pool {
-    name                 = "general"
+    name                 = "system"
     vm_size              = var.system_node_pool.vm_size
     vnet_subnet_id       = azurerm_subnet.aks.id
     orchestrator_version = var.kubernetes_version
@@ -100,8 +109,13 @@ resource "azurerm_kubernetes_cluster" "aks" {
     # Renamed from `enable_auto_scaling` in azurerm v4.0.
     auto_scaling_enabled = true
 
+    # Reserve the system pool for critical addons (CoreDNS, metrics-server,
+    # CSI drivers, etc.). This taints the nodes CriticalAddonsOnly=true:NoSchedule
+    # so application workloads land on the user / spot pools instead.
+    only_critical_addons_enabled = true
+
     node_labels = {
-      role = "general"
+      role = "system"
     }
   }
 
@@ -112,9 +126,17 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
   tags = local.common_tags
 
-  # The autoscaler owns node_count after creation; ignore drift on it.
+  # The autoscaler owns node_count after creation; ignore drift on it. The
+  # automatic_upgrade_channel ("stable") also manages the cluster/node-pool
+  # version, so ignore those too - otherwise every plan after an auto-upgrade
+  # would try to revert AKS back to var.kubernetes_version. To change versions
+  # via Terraform, temporarily remove these ignores or adjust the channel.
   lifecycle {
-    ignore_changes = [default_node_pool[0].node_count]
+    ignore_changes = [
+      default_node_pool[0].node_count,
+      kubernetes_version,
+      default_node_pool[0].orchestrator_version,
+    ]
   }
 
   depends_on = [azurerm_role_assignment.aks_network_contributor]

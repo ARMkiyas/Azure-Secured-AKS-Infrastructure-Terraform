@@ -66,6 +66,7 @@ Terraform configuration that provisions a network-isolated **Azure Kubernetes Se
 ├── main.tf                     # Resource group
 ├── network.tf                  # VNet, subnets, NSG + associations
 ├── aks.tf                      # AKS cluster + identity + role assignment
+├── node-pools.tf               # User (on-demand) + Spot node pools
 ├── monitoring.tf               # Log Analytics workspace (Container Insights)
 ├── ingress.tf                  # ingress-nginx Helm release
 ├── frontdoor.tf                # Azure Front Door profile/endpoint/origin/route
@@ -152,7 +153,12 @@ Set values in `terraform.tfvars` (preferred) or pass `-var`/`-var-file` on the c
 | `aks_sku_tier` | `string` | `"Free"` | `Free`, `Standard` or `Premium` |
 | `enable_azure_rbac` | `bool` | `true` | Enable Entra ID + Azure RBAC for Kubernetes auth |
 | `admin_group_object_ids` | `list(string)` | `[]` | Entra ID groups granted cluster-admin |
-| `system_node_pool` | `object` | DS2_v2, 1/1/10 | Default node pool sizing |
+| `system_node_pool` | `object` | DS2_v2, 1/1/10 | System (default) pool, reserved for critical addons |
+| `user_node_pool` | `object` | DS2_v2, 1/5 | On-demand pool for general workloads |
+| `enable_spot_node_pool` | `bool` | `true` | Create a cost-optimised Spot pool |
+| `spot_node_pool` | `object` | DS2_v2, 0/3, -1 | Spot pool sizing + max price (-1 = on-demand cap) |
+| `enable_virtual_nodes` | `bool` | `false` | Enable serverless Virtual Nodes (ACI) + delegated subnet |
+| `virtual_node_subnet` | `object` | `virtual-node-subnet / 10.0.4.0/24` | ACI-delegated subnet (used only when enabled) |
 | `aks_network_profile` | `object` | azure / azure / 10.0.192.0/18 / .10 | CNI plugin, network policy + service CIDR |
 | `api_server_authorized_ip_ranges` | `list(string)` | `[]` | CIDRs allowed to reach the public API server (empty = unrestricted) |
 | `enable_monitoring` | `bool` | `true` | Provision Log Analytics + Container Insights |
@@ -176,8 +182,34 @@ Most resources are named `${project_name}-${environment}-...` (e.g. `cloudcare-d
 | `log_analytics_workspace_id` | Log Analytics workspace ID (null if monitoring disabled) |
 | `kube_config_raw` | Raw kubeconfig (**sensitive**) |
 
-## Connecting to the cluster
+## Compute topology and cost optimization
 
+The cluster uses three node pools so workloads land on the right capacity:
+
+| Pool | Type | Purpose | Scheduling |
+|------|------|---------|-----------|
+| `system` (default) | On-demand | Critical addons only (CoreDNS, CSI, metrics) | Tainted `CriticalAddonsOnly=true:NoSchedule` |
+| `user` | On-demand | Ingress controller + general workloads | Default (untainted) |
+| `spot` | **Spot** | Interruptible / fault-tolerant / batch | Tainted `kubernetes.azure.com/scalesetpriority=spot:NoSchedule` |
+
+**Spot** (enabled by default, `enable_spot_node_pool`) gives a steep discount on interruptible VMs and scales to zero (`min_count = 0`). Because Spot nodes can be evicted, only opt-in pods schedule there — add a toleration and node selector:
+
+```yaml
+spec:
+  tolerations:
+    - key: "kubernetes.azure.com/scalesetpriority"
+      operator: "Equal"
+      value: "spot"
+      effect: "NoSchedule"
+  nodeSelector:
+    kubernetes.azure.com/scalesetpriority: spot
+```
+
+Keep stateful or latency-sensitive services (including the ingress controller) on the `user` pool.
+
+**Virtual Nodes / serverless** (opt-in, `enable_virtual_nodes = true`) adds the ACI connector and an ACI-delegated subnet, letting you burst pods onto Azure Container Instances per-second-billed with no node management. Target them with `nodeSelector: { type: virtual-kubelet }` and the matching toleration. Note the ACI constraints (Linux, no DaemonSets, limited networking) before relying on them for production.
+
+## Connecting to the cluster
 ```bash
 az aks get-credentials \
   --resource-group "$(terraform output -raw resource_group_name)" \
@@ -204,7 +236,6 @@ Recommended hardening before production:
 
 - Set `aks_sku_tier = "Standard"` (or `Premium`) for an SLA-backed control plane.
 - Consider `private_cluster_enabled = true` to keep the API server off the public internet, and `local_account_disabled = true` to force Entra ID auth (then drive the helm provider from `kube_admin_config`).
-- Run workloads on a dedicated user node pool and reserve the system pool with `only_critical_addons_enabled` (add an `azurerm_kubernetes_cluster_node_pool`).
 - Add Azure Policy / Defender for Containers and a Front Door **WAF** policy (managed WAF rules require the `Premium_AzureFrontDoor` SKU).
 - Restrict the NSG with explicit rules rather than relying on defaults.
 - Move state to a remote backend (see below).

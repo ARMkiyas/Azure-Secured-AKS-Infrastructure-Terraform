@@ -185,6 +185,70 @@ variable "system_node_pool" {
   }
 }
 
+variable "user_node_pool" {
+  description = "On-demand user node pool that runs general workloads (system pool is reserved for critical addons)."
+  type = object({
+    vm_size   = string
+    min_count = number
+    max_count = number
+  })
+  default = {
+    vm_size   = "Standard_DS2_v2"
+    min_count = 1
+    max_count = 5
+  }
+
+  validation {
+    condition     = var.user_node_pool.min_count <= var.user_node_pool.max_count
+    error_message = "user_node_pool.min_count must be less than or equal to max_count."
+  }
+}
+
+variable "enable_spot_node_pool" {
+  description = "Create a cost-optimised Spot node pool for interruptible / fault-tolerant workloads."
+  type        = bool
+  default     = true
+}
+
+variable "spot_node_pool" {
+  description = "Spot node pool sizing. max_price = -1 pays up to the on-demand price. Spot nodes are tainted so only tolerant pods schedule there."
+  type = object({
+    vm_size   = string
+    min_count = number
+    max_count = number
+    max_price = number
+  })
+  default = {
+    vm_size   = "Standard_DS2_v2"
+    min_count = 0
+    max_count = 3
+    max_price = -1
+  }
+
+  validation {
+    condition     = var.spot_node_pool.min_count <= var.spot_node_pool.max_count
+    error_message = "spot_node_pool.min_count must be less than or equal to max_count."
+  }
+}
+
+variable "enable_virtual_nodes" {
+  description = "Enable AKS Virtual Nodes (serverless burst to Azure Container Instances). Provisions a delegated subnet and the ACI connector."
+  type        = bool
+  default     = false
+}
+
+variable "virtual_node_subnet" {
+  description = "Subnet delegated to Azure Container Instances for Virtual Nodes (only used when enable_virtual_nodes = true)."
+  type = object({
+    name           = string
+    address_prefix = string
+  })
+  default = {
+    name           = "virtual-node-subnet"
+    address_prefix = "10.0.4.0/24"
+  }
+}
+
 variable "aks_network_profile" {
   description = "AKS network profile settings. service_cidr/dns_service_ip must not overlap the VNet address space."
   type = object({
