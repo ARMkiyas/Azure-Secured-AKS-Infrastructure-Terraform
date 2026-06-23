@@ -303,7 +303,7 @@ terraform apply
 
 After the first successful apply against existing state, `moved.tf` can be deleted.
 
-## Day-2 operations
+## operations
 
 - **Format & validate:** `terraform fmt -recursive && terraform validate`
 - **Static security scan:** `trivy config .` and/or `checkov -d .`
