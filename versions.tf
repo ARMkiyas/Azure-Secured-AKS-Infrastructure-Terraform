@@ -8,7 +8,7 @@ terraform {
       source = "hashicorp/azurerm"
       # Major version 4.x. Note: v4.0 made `subscription_id` mandatory and
       # renamed several AKS arguments (handled in aks.tf).
-      version = "~> 4.0"
+      version = "~> 5.2"
     }
     helm = {
       source = "hashicorp/helm"
